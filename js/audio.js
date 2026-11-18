@@ -1,16 +1,17 @@
-// Season Shift — WebAudio engine: original recorded music (by Bok II) + synthesized SFX.
-// Music: five seamless loops (home theme + one per season) decoded into AudioBuffers and
-// looped sample-accurately. Season tracks share tempo (126 BPM) and length, so a season change
-// crossfades into the next track at the SAME playback position and bars stay aligned.
+// Season Shift — WebAudio engine: recorded music + synthesized SFX.
+// Music: five seamless loops (home theme by Bok II + one Suno track per season) decoded into
+// AudioBuffers and looped sample-accurately. Season tracks have their own tempos and lengths,
+// so a season change equal-power crossfades over 2.5 s into the next track from the start of
+// its loop (optionally waiting for the outgoing track's next bar).
 
 const MUSIC_DIR = './music/';
 const TRACKS = {
   // loopSec = exact musical loop length (from music/loops.json)
   home: { name: 'home-theme', loopSec: 3225600 / 44100, bar: 4 * 60 / 105 },
-  spring: { name: 'spring', loopSec: 3360000 / 44100, bar: 4 * 60 / 126 },
-  summer: { name: 'summer', loopSec: 3360000 / 44100, bar: 4 * 60 / 126 },
-  autumn: { name: 'autumn', loopSec: 3360000 / 44100, bar: 4 * 60 / 126 },
-  winter: { name: 'winter', loopSec: 3360000 / 44100, bar: 4 * 60 / 126 },
+  spring: { name: 'spring', loopSec: 9622621 / 44100, bar: 4 * 60 / 99.181 },
+  summer: { name: 'summer', loopSec: 6871883 / 44100, bar: 4 * 60 / 129.35 },
+  autumn: { name: 'autumn', loopSec: 7297448 / 44100, bar: 4 * 60 / 129.09 },
+  winter: { name: 'winter', loopSec: 7860825 / 44100, bar: 4 * 60 / 85.881 },
 };
 const SEASON_KEYS = ['spring', 'summer', 'autumn', 'winter'];
 const MP3_PRIMING = 1105 / 44100; // LAME encoder delay, if the decoder doesn't trim it
@@ -60,7 +61,7 @@ export class AudioEngine {
   }
 
   _fetch(key, fmt = this.format) {
-    return fetch(MUSIC_DIR + TRACKS[key].name + '.' + fmt)
+    return fetch(MUSIC_DIR + TRACKS[key].name + '.' + fmt + '?v=5')
       .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
       .then((ab) => ({ ab, fmt }));
   }
@@ -223,22 +224,19 @@ export class AudioEngine {
     const old = this.cur;
     const bothSeasons = old && old.key !== 'home' && want !== 'home';
     if (bothSeasons) {
-      // season change mid-run: fade in at the same playback position, on the next bar line
-      const bar = TRACKS[want].bar;
+      // season change mid-run: 2.5s equal-power fade into the new track from its loop start.
+      // Tracks no longer share tempo or length, so we don't keep the old playback position.
+      // Wait for the outgoing track's next bar (if it's close) so the cut feels cleaner.
+      const bar = TRACKS[old.key].bar;
       let tStart = now + 0.05;
-      let pos = this._pos(old, tStart);
-      const toBar = (bar - (pos % bar)) % bar;
-      if (toBar > 0.02) { tStart += toBar; pos = this._pos(old, tStart); }
-      const avoid = AVOID_FADE_BARS[old.key] || AVOID_FADE_BARS[want];
-      if (avoid) {
-        for (const [a, b] of avoid) {
-          const barNo = Math.round(pos / bar) % Math.round(TRACKS[want].loopSec / bar);
-          if (barNo >= a && barNo < b) { tStart += (b - barNo) * bar; pos = this._pos(old, tStart); }
-        }
+      if (bar) {
+        const pos = this._pos(old, tStart);
+        const toBar = (bar - (pos % bar)) % bar;
+        if (toBar > 0.02 && toBar < 2.5) tStart += toBar;
       }
-      this.cur = this._startTrack(want, tStart, pos, XFADE);
+      this.cur = this._startTrack(want, tStart, 0, XFADE);
       this._stopTrack(old, tStart, XFADE);
-      this.lastFade = { from: old.key, to: want, at: tStart, pos };
+      this.lastFade = { from: old.key, to: want, at: tStart, pos: 0 };
     } else {
       // home <-> run: new track from its top, quick fade of the old one
       const tStart = now + 0.03;

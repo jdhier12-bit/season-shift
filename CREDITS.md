@@ -1,8 +1,8 @@
 # Credits — Season Shift
 
 ## Music
-Original music by Bok II for Season Shift: "Home Theme", "Spring", "Summer", "Autumn" and "Winter"
-(`/music/`). Composed and produced specifically for this game. All rights reserved by the game's owner.
+- Home theme (`/music/home-theme.*`): original music by Bok II for Season Shift. Composed and produced specifically for this game. All rights reserved by the game's owner.
+- Season themes Spring, Summer, Autumn and Winter (`/music/`): produced with Suno for Season Shift. Winter is the later lofi take (electric guitar and trap hats) from `winter-v3`.
 
 ## Code & libraries
 - three.js (MIT License) — https://threejs.org
