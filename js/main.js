@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js?v=6';
-import { createPanda } from './panda.js?v=6';
-import { AudioEngine } from './audio.js?v=6';
+import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js?v=7';
+import { createPanda } from './panda.js?v=7';
+import { AudioEngine } from './audio.js?v=7';
 import { SEASONS, SEASON_NAMES } from './seasons.js';
 import { makeBlobTexture } from './textures.js';
-import { Profile, POWERUPS, CLOTHES, SLOTS, MAX_LEVEL } from './shop.js?v=6';
-import { Outfit, renderThumbnails } from './outfits.js?v=6';
+import { Profile, POWERUPS, CLOTHES, SLOTS, MAX_LEVEL } from './shop.js?v=7';
+import { Outfit, renderThumbnails } from './outfits.js?v=7';
 
 // ------------------------------------------------------------------ tuning
 const START_SPEED = 18;
