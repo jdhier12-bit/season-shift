@@ -121,5 +121,5 @@ export function createPanda() {
     Object.assign(s, { rigY: 0, rigZ: 0, pitch: 0, roll: 0, squash: 1, aL: 0, aR: 0, aLz: 0, aRz: 0, lL: 0, lR: 0, tumble: 0 });
   }
 
-  return { root, animate, reset };
+  return { root, rig, head, animate, reset };
 }

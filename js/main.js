@@ -1,14 +1,20 @@
 import * as THREE from 'three';
-import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js';
-import { createPanda } from './panda.js';
-import { AudioEngine } from './audio.js';
+import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js?v=3';
+import { createPanda } from './panda.js?v=3';
+import { AudioEngine } from './audio.js?v=3';
 import { SEASONS, SEASON_NAMES } from './seasons.js';
 import { makeBlobTexture } from './textures.js';
+import { Profile, POWERUPS, CLOTHES, SLOTS, MAX_LEVEL } from './shop.js?v=3';
+import { Outfit, renderThumbnails } from './outfits.js?v=3';
 
 // ------------------------------------------------------------------ tuning
-const START_SPEED = 12;
-const MAX_SPEED = 31;
-const ACCEL = 0.16; // units/s per second
+const START_SPEED = 14;
+const MAX_SPEED = 38;
+const ACCEL = 0.24; // units/s per second
+const HEADSTART_SPEED = 42;
+const MAGNET_R = 6.5;
+// difficulty (obstacle density, combos, corner frequency) scales with distance; the first ~20 s stay learnable
+const DIFF_START = 260, DIFF_SPAN = 2600;
 const GRAVITY = 30;
 const JUMP_V = 10;
 const SLIDE_TIME = 0.8;
@@ -44,13 +50,28 @@ const blob = new THREE.Mesh(
 );
 scene.add(blob);
 const audio = new AudioEngine();
+const profile = new Profile();
+const outfit = new Outfit(panda);
+outfit.set(profile.equipped);
+// shield bubble (seen from behind like everything else)
+const bubble = new THREE.Mesh(
+  new THREE.SphereGeometry(1.05, 24, 16),
+  new THREE.MeshPhongMaterial({ color: 0x58b8ff, emissive: 0x1a5fa0, transparent: true, opacity: 0.22, shininess: 100, depthWrite: false })
+);
+bubble.position.y = 0.95;
+bubble.scale.set(0.85, 1.05, 0.85);
+bubble.visible = false;
+panda.root.add(bubble);
 
+let baseFov = 65, fovBoost = 0, shopShift = 0;
 function onResize() {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   // keep ~50° of horizontal view so the road is framed on tall phones, without fisheye on desktop
   const hHalf = THREE.MathUtils.degToRad(25);
-  camera.fov = clamp(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hHalf) / camera.aspect)), 52, 80);
+  baseFov = clamp(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hHalf) / camera.aspect)), 52, 80);
+  camera.fov = baseFov + fovBoost;
+  if (shopShift > 0) { camera.clearViewOffset(); shopShift = 0.0001; }
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', onResize);
@@ -58,7 +79,6 @@ onResize();
 
 // ------------------------------------------------------------------ persistent stats
 let best = +localStorage.getItem('ss_best') || 0;
-let bank = +localStorage.getItem('ss_coins') || 0;
 let runsPlayed = +localStorage.getItem('ss_runs') || 0;
 let selectedSeason = clamp(+localStorage.getItem('ss_season') || 0, 0, 3);
 
@@ -70,6 +90,9 @@ const P = {
   visOff: new THREE.Vector3(), season: 0, corners: 0, deadT: 0, latV: 0,
 };
 let turnQueue = null; // { dir, t }
+// active power-ups: seconds remaining (and the full duration, for the HUD bars)
+const PU = { magnet: 0, doubler: 0, shield: 0, headstart: 0 };
+const PUmax = { magnet: 1, doubler: 1, shield: 1, headstart: 1 };
 let worldFresh = false;
 const focus = new THREE.Vector3();
 const camPos = new THREE.Vector3(0, 3, 8);
@@ -82,7 +105,9 @@ function resetPlayer() {
     seg: 0, s: 4, x: 0, targetX: 0, feet: 0, vy: 0, jumping: false, sliding: false, slideT: 0,
     speed: START_SPEED, time: 0, dist: 0, coins: 0, score: 0, yaw: 0, yawTarget: 0, camYaw: 0,
     season: selectedSeason, corners: 0, deadT: 0, latV: 0, fell: false,
+    inv: 0, revived: false, fallSeg: 0, revT: 0, boostT: 0,
   });
+  for (const k in PU) { PU[k] = 0; PUmax[k] = 1; }
   P.visOff.set(0, 0, 0);
   turnQueue = null;
   panda.reset();
@@ -162,6 +187,12 @@ function inputSlide() {
 addEventListener('keydown', (e) => {
   audio.unlock();
   const k = e.key;
+  if (shopOpen) { if (k === 'Escape') closeShop(); return; }
+  if (state === 'revive') {
+    if (k === 'Enter' || k === ' ') doRevive();
+    else if (k === 'Escape') declineRevive();
+    return;
+  }
   if (state === 'home') {
     if (k === 'ArrowLeft' || k === 'a' || k === 'A') goPage(selectedSeason - 1);
     else if (k === 'ArrowRight' || k === 'd' || k === 'D') goPage(selectedSeason + 1);
@@ -215,7 +246,7 @@ for (const ev of ['touchend', 'click', 'pointerup']) addEventListener(ev, () => 
 
 // ------------------------------------------------------------------ run lifecycle
 function setScreen(id) {
-  for (const s of ['home', 'hud', 'pause', 'over']) $(s).classList.toggle('active', s === id || (id === 'pause' && s === 'hud') || (id === 'over' && s === 'hud'));
+  for (const s of ['home', 'hud', 'pause', 'over', 'revive']) $(s).classList.toggle('active', s === id || ((id === 'pause' || id === 'over' || id === 'revive') && s === 'hud'));
 }
 
 function startRun() {
@@ -234,6 +265,7 @@ function startRun() {
   updateSeasonBadge(selectedSeason, false);
   $('score').textContent = '0';
   $('coins').textContent = '0';
+  showStartBoosts();
   runsPlayed++;
   localStorage.setItem('ss_runs', runsPlayed);
   if (runsPlayed <= 2) {
@@ -259,6 +291,7 @@ function resume() {
 }
 function goHome() {
   state = 'home';
+  hideStartBoosts();
   audio.setMode('menu');
   buildWorld(selectedSeason);
   resetPlayer();
@@ -268,6 +301,7 @@ function goHome() {
 
 function crash() {
   state = 'dying';
+  hideStartBoosts();
   P.deadT = 0;
   P.sliding = false;
   shake = 0.5;
@@ -277,6 +311,8 @@ function crash() {
 }
 function fallOff() {
   state = 'falling';
+  hideStartBoosts();
+  P.fallSeg = P.seg;
   P.deadT = 0;
   P.vy = 2;
   audio.fall();
@@ -287,8 +323,8 @@ function gameOver() {
   audio.setMode('menu');
   const isBest = P.score > best;
   if (isBest) { best = P.score; localStorage.setItem('ss_best', best); }
-  bank += P.coins;
-  localStorage.setItem('ss_coins', bank);
+  profile.bank = profile.bank + P.coins;
+  $('overBank').textContent = profile.bank.toLocaleString();
   $('overScore').textContent = P.score.toLocaleString();
   $('overBest').textContent = best.toLocaleString();
   $('overCoins').textContent = P.coins;
@@ -348,10 +384,18 @@ function doTurn(seg, dir) {
 
 function updatePlaying(dt) {
   P.time += dt;
-  P.speed = Math.min(MAX_SPEED, START_SPEED + P.time * ACCEL);
+  const baseSpeed = Math.min(MAX_SPEED, START_SPEED + P.time * ACCEL);
+  if (PU.headstart > 0) P.speed = damp(P.speed, HEADSTART_SPEED, 3, dt);
+  else if (P.speed > baseSpeed + 0.05) P.speed = damp(P.speed, baseSpeed, 1.6, dt);
+  else P.speed = baseSpeed;
   audio.setIntensity((P.speed - START_SPEED) / (MAX_SPEED - START_SPEED));
-  world.genSpeed = P.speed + 1.5;
-  world.difficulty = clamp(P.time / 140, 0, 1);
+  world.genSpeed = Math.min(P.speed, MAX_SPEED) + 1.5;
+  world.difficulty = clamp((P.dist - DIFF_START) / DIFF_SPAN, 0, 1);
+  // power-up timers
+  for (const k in PU) if (PU[k] > 0) { PU[k] = Math.max(0, PU[k] - dt); if (PU[k] === 0) onPowerEnd(k); }
+  if (P.inv > 0) P.inv = Math.max(0, P.inv - dt);
+  const safe = P.inv > 0 || PU.headstart > 0;
+  if (P.boostT > 0) { P.boostT -= dt; if (P.boostT <= 0) hideStartBoosts(); }
 
   // --- steering target
   if (isTouch && tilt.available) {
@@ -391,17 +435,34 @@ function updatePlaying(dt) {
     if (turnQueue.dir === seg.turn) { doTurn(seg, seg.turn); seg = world.seg(P.seg); turned = true; }
     else turnQueue = null;
   }
-  if (P.s > seg.len + HALF) { P.fell = true; fallOff(); return; }
+  // invulnerable (head start / just revived / shield just popped): corners take themselves
+  if (!turned && safe && P.s >= seg.len) { P.s = seg.len; P.x = clamp(P.x, -1, 1); doTurn(seg, seg.turn); seg = world.seg(P.seg); turned = true; }
+  if (P.s > seg.len + HALF) {
+    if (PU.shield > 0) {
+      // the shield saves a missed corner: snap round it
+      useShield();
+      P.s = seg.len; P.x = 0; P.targetX = 0;
+      doTurn(seg, seg.turn); seg = world.seg(P.seg); turned = true;
+    } else { P.fell = true; fallOff(); return; }
+  }
 
   // --- collisions (tight boxes, swept along the frame's motion)
   const height = P.sliding ? SLIDE_H : STAND_H;
   const sA = turned ? P.s : sPrev;
-  if (world.hit(seg, sA, P.s, P.x, P.feet, height)) { P.fell = false; crash(); return; }
+  if (!safe && world.hit(seg, sA, P.s, P.x, P.feet, height)) {
+    if (PU.shield > 0) useShield();
+    else { P.fell = false; crash(); return; }
+  }
+
+  // --- power-up pickups
+  const pu = world.collectPickup(seg, sA, P.s, P.x, P.feet + (P.sliding ? 0.4 : 0.9));
+  if (pu) activatePower(pu, profile.duration(pu));
 
   // --- coins
-  const got = world.collect(seg, sA, P.s, P.x, P.feet + (P.sliding ? 0.4 : 0.8));
+  let got = world.collect(seg, sA, P.s, P.x, P.feet + (P.sliding ? 0.4 : 0.8));
+  if (PU.magnet > 0 || PU.headstart > 0) got += world.magnet(focus, MAGNET_R);
   if (got) {
-    P.coins += got;
+    P.coins += got * (PU.doubler > 0 ? 2 : 1);
     audio.coin();
     const c = $('coins');
     c.textContent = P.coins;
@@ -432,6 +493,7 @@ function updatePlaying(dt) {
 
 function updateDying(dt) {
   P.deadT += dt;
+  if (P.deadT > 0.75 && state === 'dying' && canRevive()) { showRevive(); return; }
   if (P.deadT > 1.1 && state === 'dying') gameOver();
 }
 
@@ -443,8 +505,118 @@ function updateFalling(dt) {
   P.vy -= GRAVITY * 0.8 * dt;
   P.feet += P.vy * dt;
   if (seg && P.feet < -8) P.feet = -8;
+  if (P.deadT > 0.95 && state === 'falling' && canRevive()) { showRevive(); return; }
   if (P.deadT > 1.3 && state === 'falling') gameOver();
 }
+
+// ------------------------------------------------------------------ power-ups
+const PU_META = Object.fromEntries(POWERUPS.map((p) => [p.id, p]));
+const pwrEls = {};
+for (const id of ['headstart', 'shield', 'magnet', 'doubler']) {
+  const m = PU_META[id];
+  const el = document.createElement('div');
+  el.className = 'pwr';
+  el.style.setProperty('--c', m.color);
+  el.innerHTML = `<span class="pwr-ico">${m.icon}</span><span class="pwr-bar"><i></i></span>`;
+  $('pwrs').appendChild(el);
+  pwrEls[id] = { el, bar: el.querySelector('i') };
+}
+function activatePower(id, dur) {
+  PU[id] = Math.max(PU[id], dur);
+  PUmax[id] = Math.max(PU[id], 0.01);
+  audio.powerup();
+  const m = PU_META[id];
+  toast(`${m.icon} ${m.name}!`, 1400);
+  if (navigator.vibrate) navigator.vibrate(25);
+}
+function onPowerEnd(id) {
+  if (id === 'headstart') P.inv = Math.max(P.inv, 0.8); // a moment to settle in after the rocket ride
+}
+function useShield() {
+  PU.shield = 0;
+  P.inv = 1.0;
+  shake = 0.3;
+  audio.shieldBreak();
+  toast('🛡️ Shield saved you!', 1400);
+  if (navigator.vibrate) navigator.vibrate(60);
+}
+function paintPowers(t) {
+  for (const id in pwrEls) {
+    const on = PU[id] > 0 && state !== 'home';
+    const e = pwrEls[id];
+    e.el.classList.toggle('on', on);
+    if (on) {
+      e.bar.style.transform = `scaleX(${PU[id] / PUmax[id]})`;
+      e.el.classList.toggle('ending', PU[id] < 2 && Math.floor(t * 6) % 2 === 0);
+    }
+  }
+}
+
+// start-of-run boosts (bought in the shop)
+function showStartBoosts() {
+  const box = $('boosts');
+  box.innerHTML = '';
+  for (const id of ['headstart', 'shield']) {
+    const n = profile.stock[id] || 0;
+    if (!n) continue;
+    const m = PU_META[id];
+    const b = document.createElement('button');
+    b.className = 'boost-btn';
+    b.style.setProperty('--c', m.color);
+    b.innerHTML = `<span>${m.icon}</span><b>${id === 'headstart' ? 'Head Start' : 'Shield'}</b><small>×${n}</small>`;
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (state !== 'playing' || !profile.useStock(id)) return;
+      activatePower(id, profile.duration(id));
+      b.remove();
+      if (!box.children.length) hideStartBoosts();
+    };
+    box.appendChild(b);
+  }
+  box.classList.toggle('show', box.children.length > 0);
+  P.boostT = box.children.length ? 5 : 0;
+}
+function hideStartBoosts() { $('boosts').classList.remove('show'); P.boostT = 0; }
+
+// second chance
+function canRevive() { return !P.revived && (profile.stock.revive || 0) > 0; }
+function showRevive() {
+  state = 'revive';
+  P.revT = 5;
+  $('reviveCount').textContent = profile.stock.revive;
+  setScreen('revive');
+}
+function declineRevive() {
+  if (state !== 'revive') return;
+  audio.click();
+  gameOver();
+}
+function doRevive() {
+  if (state !== 'revive' || !profile.useStock('revive')) return;
+  P.revived = true;
+  if (P.fell) {
+    P.seg = P.fallSeg;
+    const seg = world.seg(P.seg);
+    P.s = seg.len; P.x = 0; P.targetX = 0;
+    doTurn(seg, seg.turn);
+    P.visOff.set(0, 0, 0);
+    P.camYaw = P.yawTarget; P.yaw = P.yawTarget;
+    snapCam = true;
+  }
+  P.fell = false;
+  P.feet = 0; P.vy = 0; P.jumping = false; P.sliding = false;
+  P.speed = Math.min(P.speed, Math.min(MAX_SPEED, START_SPEED + P.time * ACCEL));
+  P.inv = profile.duration('revive');
+  panda.reset();
+  state = 'playing';
+  audio.setMode('game');
+  audio.revive();
+  setScreen('hud');
+  clock.getDelta();
+  toast('💖 Second chance!', 1400);
+}
+$('reviveBtn').onclick = (e) => { e.stopPropagation(); doRevive(); };
+$('reviveNoBtn').onclick = (e) => { e.stopPropagation(); declineRevive(); };
 
 // ------------------------------------------------------------------ rendering / camera
 const clock = new THREE.Clock();
@@ -458,6 +630,11 @@ function frame() {
   if (state === 'playing') updatePlaying(dt);
   else if (state === 'dying') updateDying(dt);
   else if (state === 'falling') updateFalling(dt);
+  else if (state === 'revive') {
+    P.revT -= dt;
+    $('reviveTimer').style.transform = `scaleX(${clamp(P.revT / 5, 0, 1)})`;
+    if (P.revT <= 0) gameOver();
+  }
   if (state === 'home') { homeT += dt; world.ensure(0, 0, 1); }
 
   // --- panda placement
@@ -472,9 +649,17 @@ function frame() {
   const mode = state === 'home' ? 'idle'
     : state === 'dying' || state === 'over' && !P.fell ? 'crash'
     : state === 'falling' || (state === 'over' && P.fell) ? 'fall'
+    : state === 'revive' ? (P.fell ? 'fall' : 'crash')
     : state === 'paused' ? 'run-paused'
     : P.sliding ? 'slide' : P.jumping ? 'jump' : 'run';
-  if (mode !== 'run-paused') panda.animate(dt, { mode, speed: P.speed });
+  if (mode !== 'run-paused') { panda.animate(dt, { mode, speed: P.speed }); outfit.update(dt, P.speed, mode); }
+  const ft = clock.elapsedTime;
+  panda.rig.visible = !(P.inv > 0 && PU.headstart <= 0 && state === 'playing' && Math.floor(ft * 14) % 2 === 0);
+  bubble.visible = PU.shield > 0 && state !== 'home' && !(PU.shield < 2 && Math.floor(ft * 8) % 2 === 0);
+  if (bubble.visible) { const k = 1 + Math.sin(ft * 6) * 0.03; bubble.scale.set(0.85 * k, 1.05 * k, 0.85 * k); }
+  paintPowers(ft);
+  const fb = PU.headstart > 0 && state === 'playing' ? 9 : 0;
+  if (Math.abs(fovBoost - fb) > 0.05) { fovBoost = damp(fovBoost, fb, 4, dt); camera.fov = baseFov + fovBoost; camera.updateProjectionMatrix(); }
   blob.position.set(focus.x, 0.02, focus.z);
   const bs = clamp(1 - P.feet * 0.35, 0.3, 1);
   blob.scale.set(bs, 1, bs);
@@ -484,8 +669,9 @@ function frame() {
   const cy = P.camYaw;
   const cos = Math.cos(cy), sin = Math.sin(cy);
   const home = state === 'home';
-  const off = home ? [0.0, 2.3 + Math.sin(homeT * 0.5) * 0.1, 4.8] : [0, 3.4, 6.2];
-  const look = home ? [0, 1.25, -6] : [0, 1.0, -7.5];
+  // in the shop the camera swings to a rear three-quarter view (never the panda's face)
+  const off = home ? (shopOpen ? [1.8, 2.15, 4.1] : [0.0, 2.3 + Math.sin(homeT * 0.5) * 0.1, 4.8]) : [0, 3.4, 6.2];
+  const look = home ? (shopOpen ? [0.0, 0.95, 0.0] : [0, 1.25, -6]) : [0, 1.0, -7.5];
   // follow the panda's lateral position only partly, so the road stays framed
   const [rx, rz] = rightVec(seg.dir);
   const latPull = home ? 0 : P.x * 0.3;
@@ -510,10 +696,18 @@ function frame() {
     camera.position.y += (Math.random() - 0.5) * a;
   }
   camera.lookAt(camLook);
+  // shop: shift the picture up so the panda sits in the open area above the shop sheet
+  const so = damp(shopShift, shopOpen && state === 'home' ? 0.28 : 0, 8, dt);
+  if (Math.abs(so - shopShift) > 1e-4 || (so > 0 && camera.view == null)) {
+    shopShift = so < 0.002 && !shopOpen ? 0 : so;
+    if (shopShift > 0) camera.setViewOffset(innerWidth, innerHeight, 0, shopShift * innerHeight, innerWidth, innerHeight);
+    else camera.clearViewOffset();
+  }
 
   world.updateAtmosphere(dt);
   world.follow(focus, camera, state === 'paused' ? 0 : dt);
   world.updateCoins(state === 'paused' ? 0 : dt, focus);
+  world.updatePickups(state === 'paused' ? 0 : dt);
   renderer.render(scene, camera);
 
   // --- adaptive resolution for a steady 60fps on phones
@@ -562,6 +756,10 @@ $('pauseBtn').onclick = (e) => { e.stopPropagation(); audio.click(); pause(); };
 $('resumeBtn').onclick = () => { audio.click(); resume(); };
 $('pauseHomeBtn').onclick = () => { audio.click(); goHome(); };
 $('overHomeBtn').onclick = () => { audio.click(); goHome(); };
+$('overShopBtn').onclick = () => { audio.click(); goHome(); openShop(); };
+$('shopBtn').onclick = (e) => { e.stopPropagation(); audio.unlock(); audio.click(); openShop(); };
+$('shopBtn2').onclick = (e) => { e.stopPropagation(); audio.unlock(); audio.click(); openShop(); };
+$('shopClose').onclick = () => { audio.click(); closeShop(); };
 const soundBtn = $('soundBtn');
 const paintSound = () => { soundBtn.textContent = audio.enabled ? '🔊' : '🔇'; };
 soundBtn.onclick = (e) => { e.stopPropagation(); audio.unlock(); audio.setEnabled(!audio.enabled); paintSound(); };
@@ -576,12 +774,15 @@ const paintAudioToggles = () => {
 musicBtn.onclick = () => { audio.unlock(); audio.setMusicEnabled(!audio.musicOn); audio.click(); paintAudioToggles(); };
 sfxBtn.onclick = () => { audio.unlock(); audio.setSfxEnabled(!audio.sfxOn); audio.click(); paintAudioToggles(); };
 paintAudioToggles();
-if (/[?&]debug\b/.test(location.search)) window.__ss = { audio, P, get state() { return state; } };
+if (/[?&]debug\b/.test(location.search)) window.__ss = {
+  audio, P, PU, profile, world, panda, outfit, camera, activatePower, openShop, closeShop, startRun, crash,
+  get state() { return state; }, get shopOpen() { return shopOpen; },
+};
 paintSound();
 
 function refreshHome() {
   $('homeBest').textContent = best.toLocaleString();
-  $('homeCoins').textContent = bank.toLocaleString();
+  $('homeCoins').textContent = profile.bank.toLocaleString();
   dots.forEach((d, k) => d.classList.toggle('on', k === selectedSeason));
   applySeasonCss(selectedSeason);
   const iosTilt = window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function';
@@ -590,6 +791,107 @@ function refreshHome() {
 }
 
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+// ------------------------------------------------------------------ shop
+let shopOpen = false;
+let shopTab = 'powerups';
+let thumbs = null;
+function openShop() {
+  if (state !== 'home') return;
+  shopOpen = true;
+  $('shop').classList.add('active');
+  $('home').classList.add('shopping');
+  renderShop();
+  if (!thumbs) {
+    thumbs = {};
+    renderThumbnails(createPanda, CLOTHES.map((c) => c.id)).then((t) => { thumbs = t; if (shopOpen) renderShop(); });
+  }
+}
+function closeShop() {
+  shopOpen = false;
+  $('shop').classList.remove('active');
+  $('home').classList.remove('shopping');
+  outfit.set(profile.equipped);
+  refreshHome();
+}
+document.querySelectorAll('.shop-tab').forEach((b) => {
+  b.onclick = () => { audio.click(); shopTab = b.dataset.tab; renderShop(); };
+});
+const coinTag = (n) => `<i class="coin-ico"></i> ${n.toLocaleString()}`;
+function renderShop() {
+  const bank = profile.bank;
+  $('shopBank').textContent = bank.toLocaleString();
+  document.querySelectorAll('.shop-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === shopTab));
+  const list = $('shopList');
+  let h = '';
+  if (shopTab === 'powerups') {
+    for (const p of POWERUPS) {
+      const lvl = profile.levels[p.id] || 1;
+      const price = profile.upgradePrice(p.id);
+      const dur = profile.duration(p.id);
+      const next = lvl < MAX_LEVEL ? p.base + p.step * lvl : null;
+      const pips = Array.from({ length: MAX_LEVEL }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
+      const durTxt = p.id === 'revive' ? `${dur}s safe after reviving` : `${dur}s`;
+      h += `<div class="pu-card" style="--c:${p.color}">
+        <div class="pu-ico">${p.icon}</div>
+        <div class="pu-body">
+          <div class="pu-name">${p.name}</div>
+          <div class="pu-desc">${p.desc}</div>
+          <div class="pu-lvl"><span class="pips">${pips}</span><span>${durTxt}${next ? ` → ${p.id === 'revive' ? next + 's' : next + 's'}` : ' · MAX'}</span></div>
+          <div class="pu-actions">
+            ${price != null ? `<button class="buy-btn${bank < price ? ' poor' : ''}" data-act="up" data-id="${p.id}">Upgrade ${coinTag(price)}</button>` : `<span class="maxed">Fully upgraded</span>`}
+            ${p.stock ? `<button class="buy-btn alt${bank < p.stock.price ? ' poor' : ''}" data-act="stock" data-id="${p.id}">+1 ${coinTag(p.stock.price)}</button><span class="have">Have ×${profile.stock[p.id] || 0}</span>` : `<span class="have">Find it on the road</span>`}
+          </div>
+        </div>
+      </div>`;
+    }
+    h += `<p class="shop-note">Magnet, Doubler and Shield also appear as glowing pickups on the road. Head Start and Shield charges can be used in the first seconds of a run; Second Chance is offered when you crash.</p>`;
+  } else {
+    for (const sl of SLOTS) {
+      h += `<h3 class="slot-h">${sl.name}</h3><div class="cl-grid">`;
+      for (const c of CLOTHES.filter((q) => q.slot === sl.id)) {
+        const owned = !!profile.owned[c.id];
+        const eq = profile.equipped[c.slot] === c.id;
+        const img = thumbs && thumbs[c.id] ? `<img alt="" src="${thumbs[c.id]}">` : `<div class="thumb-ph"></div>`;
+        const btn = owned
+          ? `<button class="buy-btn ${eq ? 'eq' : 'alt'}" data-act="equip" data-id="${c.id}">${eq ? '✓ Equipped' : 'Equip'}</button>`
+          : `<button class="buy-btn${bank < c.price ? ' poor' : ''}" data-act="buy" data-id="${c.id}">${coinTag(c.price)}</button>`;
+        h += `<div class="cl-card${eq ? ' eq' : ''}" data-id="${c.id}">${img}<div class="cl-name">${c.name}</div>${btn}</div>`;
+      }
+      h += `</div>`;
+    }
+  }
+  list.innerHTML = h;
+}
+$('shopList').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) {
+    // tap a clothing card to preview it on the panda
+    const card = e.target.closest('.cl-card');
+    if (card) { const c = CLOTHES.find((q) => q.id === card.dataset.id); outfit.set({ ...profile.equipped, [c.slot]: c.id }); }
+    return;
+  }
+  audio.unlock();
+  const id = b.dataset.id, act = b.dataset.act;
+  let ok = true;
+  if (act === 'up') ok = profile.upgrade(id);
+  else if (act === 'stock') ok = profile.buyStock(id);
+  else if (act === 'buy') ok = profile.buyClothing(id);
+  else if (act === 'equip') { profile.toggleEquip(id); audio.click(); }
+  if (act !== 'equip') {
+    if (ok) audio.buy();
+    else { audio.denied(); toast2('Not enough coins yet: keep running!'); }
+  }
+  outfit.set(profile.equipped);
+  renderShop();
+});
+let toast2Timer = 0;
+function toast2(msg) {
+  const t = $('shopToast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast2Timer);
+  toast2Timer = setTimeout(() => t.classList.remove('show'), 1800);
+}
 
 // ------------------------------------------------------------------ boot
 buildWorld(selectedSeason);

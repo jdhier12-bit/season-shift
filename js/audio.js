@@ -415,6 +415,43 @@ export class AudioEngine {
     this._sfxOsc('square', 660, 880, t, 0.07, 0.22, 'lin');
   }
 
+  powerup() {
+    if (!this._ok()) return;
+    const t = this.ctx.currentTime;
+    [0, 4, 7, 12, 16].forEach((n, i) => this._sfxOsc('square', mtof(76 + n), mtof(76 + n), t + i * 0.045, 0.14, 0.24, 'lin'));
+    this._sfxOsc('sine', 600, 2400, t, 0.3, 0.3);
+  }
+
+  shieldBreak() {
+    if (!this._ok()) return;
+    const t = this.ctx.currentTime;
+    this._noise(t, 0.45, 1.0, 'highpass', 2500, 0.8, this.sfx, 6000);
+    this._sfxOsc('triangle', 1800, 300, t, 0.35, 0.4);
+    this._kick(t, 0.8, this.sfx);
+  }
+
+  buy() {
+    if (!this._ok()) return;
+    const t = this.ctx.currentTime;
+    this._sfxOsc('square', 1319, 1320, t, 0.08, 0.28, 'lin');
+    this._sfxOsc('square', 1760, 1761, t + 0.07, 0.1, 0.28, 'lin');
+    this._sfxOsc('square', 2637, 2638, t + 0.14, 0.3, 0.24, 'lin');
+    this._sfxOsc('sine', 3520, 3521, t + 0.14, 0.3, 0.14, 'lin');
+  }
+
+  denied() {
+    if (!this._ok()) return;
+    const t = this.ctx.currentTime;
+    this._sfxOsc('square', 220, 200, t, 0.12, 0.25, 'lin');
+    this._sfxOsc('square', 165, 150, t + 0.12, 0.18, 0.25, 'lin');
+  }
+
+  revive() {
+    if (!this._ok()) return;
+    const t = this.ctx.currentTime;
+    [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => this._sfxOsc('triangle', mtof(n), mtof(n), t + i * 0.05, 0.3, 0.3, 'lin'));
+  }
+
   // (was season(), which the `season` index property shadowed -> TypeError on every season change)
   seasonChime() {
     if (!this._ok()) return;

@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
   <script type="importmap">
     { "imports": { "three": "./js/vendor/three.min.js", "three/addons/BufferGeometryUtils.js": "./js/vendor/BufferGeometryUtils.js" } }
   </script>
@@ -35,6 +35,7 @@
         <span class="logo-season">Season</span>
         <span class="logo-shift">Shift</span>
       </div>
+      <button class="icon-btn shop-open-btn" id="shopBtn" aria-label="Open shop">🛍️</button>
       <button class="icon-btn" id="soundBtn" aria-label="Toggle sound">🔊</button>
     </header>
 
@@ -52,7 +53,7 @@
         <button class="play-btn" id="playBtn">PLAY</button>
         <button class="arrow" id="nextSeason" aria-label="Next season">›</button>
       </div>
-      <div class="home-stats"><span>Best <b id="homeBest">0</b></span><span><i class="coin-ico"></i> <b id="homeCoins">0</b></span></div>
+      <div class="home-stats"><span>Best <b id="homeBest">0</b></span><span><i class="coin-ico"></i> <b id="homeCoins">0</b></span><button class="stats-shop" id="shopBtn2">Shop</button></div>
       <p class="hint" id="homeHint">Swipe to pick a season</p>
     </div>
   </section>
@@ -64,6 +65,8 @@
       <div class="coins"><i class="coin-ico"></i><span id="coins">0</span></div>
     </div>
     <div class="season-badge" id="seasonBadge">Spring</div>
+    <div class="pwrs" id="pwrs"></div>
+    <div class="boosts" id="boosts"></div>
     <button class="icon-btn pause-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
     <div class="turn-hint" id="turnHint"></div>
     <div class="toast" id="toast"></div>
@@ -90,14 +93,42 @@
       <div class="stat-row"><span>Score</span><b id="overScore">0</b></div>
       <div class="stat-row"><span>Best</span><b id="overBest">0</b></div>
       <div class="stat-row"><span>Coins</span><b><i class="coin-ico"></i> <span id="overCoins">0</span></b></div>
+      <div class="stat-row"><span>Coin bank</span><b><i class="coin-ico"></i> <span id="overBank">0</span></b></div>
       <button class="big-btn" id="againBtn">Play Again</button>
-      <button class="ghost-btn" id="overHomeBtn">Home</button>
+      <div class="over-row"><button class="ghost-btn" id="overShopBtn">🛍️ Shop</button><button class="ghost-btn" id="overHomeBtn">Home</button></div>
     </div>
+  </section>
+
+  <!-- SECOND CHANCE -->
+  <section id="revive" class="screen modal" aria-label="Second chance">
+    <div class="panel">
+      <h2>Second Chance?</h2>
+      <p class="revive-sub">Keep this run going. You have <b id="reviveCount">0</b> 💖</p>
+      <div class="revive-timer"><i id="reviveTimer"></i></div>
+      <button class="big-btn" id="reviveBtn">💖 Continue</button>
+      <button class="ghost-btn" id="reviveNoBtn">No thanks</button>
+    </div>
+  </section>
+
+  <!-- SHOP -->
+  <section id="shop" class="screen" aria-label="Shop">
+    <header class="shop-top">
+      <button class="icon-btn" id="shopClose" aria-label="Close shop">✕</button>
+      <div class="shop-title">Shop</div>
+      <div class="shop-bank"><i class="coin-ico"></i> <b id="shopBank">0</b></div>
+    </header>
+    <div class="shop-sheet">
+      <div class="shop-tabs">
+        <button class="shop-tab on" data-tab="powerups">⚡ Power-ups</button>
+        <button class="shop-tab" data-tab="clothes">👒 Clothes</button>
+      </div>
+      <div class="shop-list" id="shopList"></div>
+    </div>
+    <div class="shop-toast" id="shopToast"></div>
   </section>
 
   <div id="loading" class="loading">Loading…</div>
 
-  <script type="module" src="js/main.js"></script>
-<script async src="/.netlify/scripts/ar" data-netlify-deploy-id="6afd1ca1c1b6d104a8444429" data-netlify-site-id="6ef5a6db-66f4-4fbd-a0d5-ab8824cfc07c" data-agent-runner-id="6afd18c7bcf5810e3c26a695"></script>
+  <script type="module" src="js/main.js?v=3"></script>
 </body>
 </html>

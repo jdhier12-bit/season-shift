@@ -44,6 +44,7 @@ export class World {
     this.startSeason = 0;
     this.genSpeed = 12;
     this.difficulty = 0;
+    this.pickupChance = 0.3;
     this.time = 0;
     this._initShared();
     this._initAtmosphere();
@@ -292,15 +293,24 @@ export class World {
     while (this.layout.length < n) {
       const i = this.layout.length;
       let seg;
-      const speedBonus = this.genSpeed * 1.9;
+      const v = this.genSpeed, d = this.difficulty;
       if (i === 0) {
         seg = { i, dir: 0, sx: 0, sz: 0, len: 125 };
       } else {
         const prev = this.layout[i - 1];
         const [dx, dz] = dirVec(prev.dir);
         const dir = (prev.dir + prev.turn + 4) % 4;
-        const len = dir === 0 ? rand(55, 110) + speedBonus : rand(45, 85) + speedBonus;
-        seg = { i, dir, sx: prev.sx + dx * prev.len, sz: prev.sz + dz * prev.len, len: Math.round(len) };
+        // corners come faster as the run gets harder: the obstacle-free run-out after each corner
+        // (~1.75 s) is kept, but the stretch of obstacles before the next corner shrinks
+        let len, short = false;
+        if (i >= 3 && d > 0.22 && !prev.short && Math.random() < 0.07 + 0.2 * d) {
+          // double corner: a short, obstacle-free link straight into another turn
+          len = v * 1.0 + 17;
+          short = true;
+        } else {
+          len = v * 1.85 + 14 + v * (dir === 0 ? rand(2.2, 4.4) : rand(1.8, 3.6)) * (1 - 0.45 * d);
+        }
+        seg = { i, dir, sx: prev.sx + dx * prev.len, sz: prev.sz + dz * prev.len, len: Math.round(len), short };
       }
       // choose the turn at the end of this segment (never head south)
       if (seg.dir === 0) seg.turn = Math.random() < 0.5 ? -1 : 1;
@@ -492,22 +502,37 @@ export class World {
     const d = this.difficulty;
     // no obstacles in a corner or for ~1.75 s after one; keep the approach to the next corner clear
     const sStart = seg.i === 0 ? 48 : HALF + speed * 1.85 + 2;
-    const sEnd = seg.len - HALF - 8;
+    const sEnd = seg.len - HALF - Math.max(8, speed * 0.35);
     const list = [];
     let s = sStart;
     let last = null;
+    // quick follow-ups: [next obstacle, seconds after the first]. Each is readable and has a clear
+    // answer (jump then duck, duck then jump, weave left/right, thread the middle then dodge).
+    const COMBOS = {
+      log: [['bar', 0.95], ['rockL', 0.72], ['rockR', 0.72], ['rockC', 0.72]],
+      bar: [['log', 0.72], ['rockC', 0.72]],
+      rockL: [['rockR', 0.85], ['log', 0.68], ['bar', 0.68]],
+      rockR: [['rockL', 0.85], ['log', 0.68], ['bar', 0.68]],
+      rockC: [['log', 0.68], ['rockLR', 0.9]],
+      rockLR: [['rockC', 0.9], ['bar', 0.68]],
+    };
     while (s < sEnd) {
       const r = Math.random();
       let type;
-      if (r < 0.28) type = 'log';
-      else if (r < 0.52) type = 'bar';
-      else if (r < 0.74) type = Math.random() < 0.5 ? 'rockL' : 'rockR';
-      else if (r < 0.88) type = 'rockC';
+      if (r < 0.27) type = 'log';
+      else if (r < 0.5) type = 'bar';
+      else if (r < 0.73) type = Math.random() < 0.5 ? 'rockL' : 'rockR';
+      else if (r < 0.87) type = 'rockC';
       else type = 'rockLR';
       if (last && last === type && type !== 'log') type = 'log';
       list.push({ type, s });
       last = type;
-      const gapT = (1.4 - 0.58 * d) * rand(0.9, 1.35);
+      if (d > 0.04 && Math.random() < 0.1 + 0.42 * d) {
+        const [t2, gap] = pick(COMBOS[type]);
+        const s2 = s + Math.max(8, speed * gap);
+        if (s2 < sEnd) { list.push({ type: t2, s: s2, combo: true }); s = s2; last = t2; }
+      }
+      const gapT = Math.max(0.62, (1.2 - 0.52 * d) * rand(0.85, 1.22));
       s += Math.max(9, speed * gapT);
     }
 
@@ -515,7 +540,20 @@ export class World {
 
     // coins: safe-zone trail after the corner
     const firstObs = list.length ? list[0].s : sEnd;
-    this._coinTrail(seg, (seg.i === 0 ? 10 : HALF + 4), Math.min(firstObs - 4, (seg.i === 0 ? 40 : HALF + 30)), rand(-1, 1) * 0.9);
+    const trailX = rand(-1, 1) * 0.9;
+    const trailA = seg.i === 0 ? 10 : HALF + 4;
+    const trailB = Math.min(firstObs - 4, (seg.i === 0 ? 40 : HALF + 30));
+    this._coinTrail(seg, trailA, trailB, trailX);
+    // power-up pickup at the end of the safe trail after the corner
+    seg.pickups = [];
+    if (seg.i > 0 && Math.random() < this.pickupChance) {
+      const ps = Math.min(trailB + 1.6, firstObs - 3.5);
+      if (ps > trailA + 2 && ps < seg.len - HALF - 4) {
+        const r = Math.random();
+        const type = r < 0.4 ? 'magnet' : r < 0.7 ? 'doubler' : 'shield';
+        this._pickup(seg, group, type, ps, trailX);
+      }
+    }
     for (let k = 0; k < list.length; k++) {
       const o = list[k];
       const next = list[k + 1];
@@ -530,6 +568,86 @@ export class World {
         this._coinTrail(seg, a, Math.min(b, a + 12), x);
       }
     }
+  }
+
+  _pickup(seg, group, type, s, x) {
+    const P = this._pickupAssets || (this._pickupAssets = {
+      halo: new THREE.SphereGeometry(0.5, 18, 12),
+      haloMat: {
+        magnet: new THREE.MeshBasicMaterial({ color: 0xff5a6e, transparent: true, opacity: 0.32, depthWrite: false }),
+        doubler: new THREE.MeshBasicMaterial({ color: 0xa96bff, transparent: true, opacity: 0.32, depthWrite: false }),
+        shield: new THREE.MeshBasicMaterial({ color: 0x3fa9ff, transparent: true, opacity: 0.32, depthWrite: false }),
+      },
+      magnetU: new THREE.TorusGeometry(0.2, 0.075, 8, 18, Math.PI).rotateZ(Math.PI),
+      tip: new THREE.BoxGeometry(0.15, 0.1, 0.15),
+      gem: new THREE.OctahedronGeometry(0.27, 0),
+      hex: new THREE.CylinderGeometry(0.28, 0.28, 0.07, 6).rotateX(Math.PI / 2),
+      hexIn: new THREE.CylinderGeometry(0.16, 0.16, 0.09, 6).rotateX(Math.PI / 2),
+      red: new THREE.MeshPhongMaterial({ color: 0xff3048, emissive: 0x500010, shininess: 60 }),
+      silver: new THREE.MeshPhongMaterial({ color: 0xe8eef5, emissive: 0x303540, shininess: 90 }),
+      purple: new THREE.MeshPhongMaterial({ color: 0xb27bff, emissive: 0x3a1070, shininess: 90, flatShading: true }),
+      blue: new THREE.MeshPhongMaterial({ color: 0x3fa9ff, emissive: 0x0a3060, shininess: 80 }),
+      white: new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x404040 }),
+    });
+    const g = new THREE.Group();
+    g.position.set(x, 1.0, -s);
+    const halo = new THREE.Mesh(P.halo, P.haloMat[type]);
+    g.add(halo);
+    const icon = new THREE.Group();
+    g.add(icon);
+    if (type === 'magnet') {
+      icon.add(new THREE.Mesh(P.magnetU, P.red));
+      for (const sd of [-1, 1]) { const t = new THREE.Mesh(P.tip, P.silver); t.position.set(sd * 0.2, 0.06, 0); icon.add(t); }
+    } else if (type === 'doubler') {
+      icon.add(new THREE.Mesh(P.gem, P.purple));
+    } else {
+      icon.add(new THREE.Mesh(P.hex, P.blue));
+      const inner = new THREE.Mesh(P.hexIn, P.white); icon.add(inner);
+    }
+    icon.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    group.add(g);
+    seg.pickups.push({ type, s, x, y: 1.0, mesh: g, icon, taken: false, tt: 0 });
+    // no coins inside the pickup
+    seg.coins = seg.coins.filter((c) => Math.abs(c.s - s) > 1.2 || Math.abs(c.x - x) > 0.9);
+  }
+
+  collectPickup(seg, sA, sB, x, cy) {
+    const s0 = Math.min(sA, sB) - 0.8, s1 = Math.max(sA, sB) + 0.8;
+    for (const p of seg.pickups || []) {
+      if (p.taken || p.s < s0 || p.s > s1) continue;
+      if (Math.abs(p.x - x) < 0.95 && Math.abs(p.y - cy) < 1.2) { p.taken = true; p.tt = 0; return p.type; }
+    }
+    return null;
+  }
+
+  updatePickups(dt) {
+    for (const seg of this.built.values()) {
+      for (const p of seg.pickups || []) {
+        if (!p.mesh.visible) continue;
+        p.icon.rotation.y += dt * 2.6;
+        if (p.taken) {
+          p.tt += dt;
+          const k = 1 + p.tt * 5;
+          p.mesh.scale.set(k, k, k);
+          p.mesh.position.y = p.y + p.tt * 3;
+          if (p.tt > 0.25) p.mesh.visible = false;
+        } else p.mesh.position.y = p.y + Math.sin(this.time * 3 + p.s) * 0.1;
+      }
+    }
+  }
+
+  /** Coin magnet: grab every coin within radius r of the player; they fly in over a few frames. */
+  magnet(focus, r) {
+    let n = 0;
+    const r2 = r * r;
+    for (const seg of this.built.values()) {
+      for (const c of seg.coins) {
+        if (c.taken) continue;
+        const dx = c.w.x - focus.x, dz = c.w.z - focus.z;
+        if (dx * dx + dz * dz < r2) { c.taken = true; c.fly = true; c.tt = 0; n++; }
+      }
+    }
+    return n;
   }
 
   _coin(seg, s, x, y) {
@@ -649,7 +767,19 @@ export class World {
         if (n >= max) break;
         let y = c.y + Math.sin(this.time * 3 + c.s) * 0.06;
         let sc = 1;
-        if (c.taken) {
+        if (c.taken && c.fly) {
+          c.tt += dt;
+          if (c.tt > 0.24) continue;
+          const k = Math.min(1, c.tt / 0.2);
+          const e = k * k;
+          tmpP.set(c.w.x + (focus.x - c.w.x) * e, y + (focus.y + 1.0 - y) * e, c.w.z + (focus.z - c.w.z) * e);
+          sc = 1 - 0.5 * k;
+          tmpQ.setFromAxisAngle(UP, spin * 4);
+          tmpS.set(sc, sc, sc);
+          tmpM.compose(tmpP, tmpQ, tmpS);
+          this.coinMesh.setMatrixAt(n++, tmpM);
+          continue;
+        } else if (c.taken) {
           c.tt += dt;
           if (c.tt > 0.3) continue;
           y += c.tt * 7;
