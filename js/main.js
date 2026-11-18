@@ -1,20 +1,20 @@
 import * as THREE from 'three';
-import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js?v=3';
-import { createPanda } from './panda.js?v=3';
-import { AudioEngine } from './audio.js?v=3';
+import { World, HALF, PLAY_HALF, dirVec, rightVec } from './world.js?v=4';
+import { createPanda } from './panda.js?v=4';
+import { AudioEngine } from './audio.js?v=4';
 import { SEASONS, SEASON_NAMES } from './seasons.js';
 import { makeBlobTexture } from './textures.js';
-import { Profile, POWERUPS, CLOTHES, SLOTS, MAX_LEVEL } from './shop.js?v=3';
-import { Outfit, renderThumbnails } from './outfits.js?v=3';
+import { Profile, POWERUPS, CLOTHES, SLOTS, MAX_LEVEL } from './shop.js?v=4';
+import { Outfit, renderThumbnails } from './outfits.js?v=4';
 
 // ------------------------------------------------------------------ tuning
-const START_SPEED = 14;
-const MAX_SPEED = 38;
-const ACCEL = 0.24; // units/s per second
-const HEADSTART_SPEED = 42;
+const START_SPEED = 18;
+const MAX_SPEED = 46;
+const ACCEL = 0.62; // units/s per second (top speed after ~45 s)
+const HEADSTART_SPEED = 50;
 const MAGNET_R = 6.5;
-// difficulty (obstacle density, combos, corner frequency) scales with distance; the first ~20 s stay learnable
-const DIFF_START = 260, DIFF_SPAN = 2600;
+// difficulty (obstacle density, combos, corner frequency) scales with distance: starts after ~80 m, full by ~1,200 m
+const DIFF_START = 80, DIFF_SPAN = 1120;
 const GRAVITY = 30;
 const JUMP_V = 10;
 const SLIDE_TIME = 0.8;
@@ -115,6 +115,7 @@ function resetPlayer() {
 
 function buildWorld(season) {
   world.genSpeed = START_SPEED + 1.5;
+  Object.assign(world, { curSpeed: START_SPEED, playerDist: 0, accel: ACCEL, maxSpeed: MAX_SPEED, diffStart: DIFF_START, diffSpan: DIFF_SPAN });
   world.reset(season);
   world.ensure(0, 0, 99);
   audio.setSeason(season);
@@ -391,6 +392,7 @@ function updatePlaying(dt) {
   audio.setIntensity((P.speed - START_SPEED) / (MAX_SPEED - START_SPEED));
   world.genSpeed = Math.min(P.speed, MAX_SPEED) + 1.5;
   world.difficulty = clamp((P.dist - DIFF_START) / DIFF_SPAN, 0, 1);
+  world.curSpeed = P.speed; world.playerDist = P.dist;
   // power-up timers
   for (const k in PU) if (PU[k] > 0) { PU[k] = Math.max(0, PU[k] - dt); if (PU[k] === 0) onPowerEnd(k); }
   if (P.inv > 0) P.inv = Math.max(0, P.inv - dt);

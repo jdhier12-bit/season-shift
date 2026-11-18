@@ -3,21 +3,21 @@
 
 export const POWERUPS = [
   { id: 'magnet', name: 'Coin Magnet', icon: '🧲', color: '#ff5a6e', timed: true,
-    desc: 'Pulls nearby coins to you.', base: 8, step: 2, unit: 's' },
+    desc: 'Pulls nearby coins to you.', base: 6, step: 2, unit: 's' },
   { id: 'doubler', name: 'Coin Doubler', icon: '✖️2', color: '#a96bff', timed: true,
-    desc: 'Every coin counts double.', base: 8, step: 2, unit: 's' },
+    desc: 'Every coin counts double.', base: 6, step: 2, unit: 's' },
   { id: 'shield', name: 'Shield', icon: '🛡️', color: '#3fa9ff', timed: true,
-    desc: 'Absorbs one crash or missed corner.', base: 12, step: 4, unit: 's',
-    stock: { price: 150, label: 'Start with a Shield' } },
+    desc: 'Absorbs one crash or missed corner.', base: 8, step: 4, unit: 's',
+    stock: { price: 750, label: 'Start with a Shield' } },
   { id: 'headstart', name: 'Head Start', icon: '⚡', color: '#ffb400', timed: true,
     desc: 'Rocket ahead at top speed, untouchable.', base: 3, step: 1, unit: 's',
-    stock: { price: 250, label: 'Head Start charge' } },
+    stock: { price: 1250, label: 'Head Start charge' } },
   { id: 'revive', name: 'Second Chance', icon: '💖', color: '#ff6fae', timed: false,
     desc: 'Continue once after a crash.', base: 2, step: 0.5, unit: 's safe',
-    stock: { price: 400, label: 'Second Chance charge' } },
+    stock: { price: 2000, label: 'Second Chance charge' } },
 ];
 // upgrade price to reach level 2..5
-export const UPGRADE_PRICES = [0, 0, 200, 450, 900, 1800];
+export const UPGRADE_PRICES = [0, 0, 1000, 2250, 4500, 9000];
 export const MAX_LEVEL = 5;
 
 export const SLOTS = [
@@ -26,17 +26,17 @@ export const SLOTS = [
   { id: 'back', name: 'Backs' },
 ];
 export const CLOTHES = [
-  { id: 'beanie', slot: 'hat', name: 'Cozy Beanie', price: 300 },
-  { id: 'straw', slot: 'hat', name: 'Straw Hat', price: 450 },
-  { id: 'flowercrown', slot: 'hat', name: 'Flower Crown', price: 900 },
-  { id: 'crown', slot: 'hat', name: 'Golden Crown', price: 3500 },
-  { id: 'scarfRed', slot: 'neck', name: 'Red Scarf', price: 250 },
-  { id: 'scarfStripe', slot: 'neck', name: 'Striped Scarf', price: 500 },
-  { id: 'scarfRainbow', slot: 'neck', name: 'Rainbow Scarf', price: 1500 },
-  { id: 'explorer', slot: 'back', name: 'Explorer Pack', price: 800 },
-  { id: 'leafpack', slot: 'back', name: 'Leaf Pack', price: 1200 },
-  { id: 'cape', slot: 'back', name: 'Hero Cape', price: 2500 },
-  { id: 'royalcape', slot: 'back', name: 'Royal Cape', price: 5000 },
+  { id: 'beanie', slot: 'hat', name: 'Cozy Beanie', price: 1500 },
+  { id: 'straw', slot: 'hat', name: 'Straw Hat', price: 2250 },
+  { id: 'flowercrown', slot: 'hat', name: 'Flower Crown', price: 4500 },
+  { id: 'crown', slot: 'hat', name: 'Golden Crown', price: 17500 },
+  { id: 'scarfRed', slot: 'neck', name: 'Red Scarf', price: 1250 },
+  { id: 'scarfStripe', slot: 'neck', name: 'Striped Scarf', price: 2500 },
+  { id: 'scarfRainbow', slot: 'neck', name: 'Rainbow Scarf', price: 7500 },
+  { id: 'explorer', slot: 'back', name: 'Explorer Pack', price: 4000 },
+  { id: 'leafpack', slot: 'back', name: 'Leaf Pack', price: 6000 },
+  { id: 'cape', slot: 'back', name: 'Hero Cape', price: 12500 },
+  { id: 'royalcape', slot: 'back', name: 'Royal Cape', price: 25000 },
 ];
 
 const KEY = 'ss_shop_v1';

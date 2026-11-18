@@ -44,7 +44,11 @@ export class World {
     this.startSeason = 0;
     this.genSpeed = 12;
     this.difficulty = 0;
-    this.pickupChance = 0.3;
+    // speed prediction + difficulty curve (set by the game)
+    this.curSpeed = 12; this.playerDist = 0; this.accel = 0.2; this.maxSpeed = 40;
+    this.diffStart = 80; this.diffSpan = 1120;
+    this.forceSpeed = 0; this.forceDiff = null;
+    this.pickupChance = 0.12;
     this.time = 0;
     this._initShared();
     this._initAtmosphere();
@@ -289,28 +293,45 @@ export class World {
 
   seasonOf(i) { return (this.startSeason + Math.floor(i / SEG_PER_SEASON)) % 4; }
 
+  /** Speed the player will be doing when reaching path distance d0 (predicted from the ramp). */
+  _speedFor(d0) {
+    if (this.forceSpeed) return this.forceSpeed;
+    const v = Math.max(1, this.curSpeed);
+    const t = Math.max(0, d0 - this.playerDist) / v;
+    const pv = v > this.maxSpeed ? v : Math.min(this.maxSpeed, v + this.accel * t);
+    return pv + 1.5;
+  }
+  /** Difficulty 0..1 at path distance d0. */
+  _diffFor(d0) {
+    if (this.forceDiff != null) return this.forceDiff;
+    return Math.max(0, Math.min(1, (d0 - this.diffStart) / this.diffSpan));
+  }
+
   _ensureLayout(n) {
     while (this.layout.length < n) {
       const i = this.layout.length;
       let seg;
-      const v = this.genSpeed, d = this.difficulty;
       if (i === 0) {
-        seg = { i, dir: 0, sx: 0, sz: 0, len: 125 };
+        seg = { i, dir: 0, sx: 0, sz: 0, len: 125, d0: 0 };
       } else {
         const prev = this.layout[i - 1];
         const [dx, dz] = dirVec(prev.dir);
         const dir = (prev.dir + prev.turn + 4) % 4;
+        const d0 = prev.d0 + prev.len;
+        const v = this._speedFor(d0 + 140), d = this._diffFor(d0);
         // corners come faster as the run gets harder: the obstacle-free run-out after each corner
-        // (~1.75 s) is kept, but the stretch of obstacles before the next corner shrinks
+        // (~1.85 s) and the clear approach to the next one are kept, the obstacle stretch shrinks
         let len, short = false;
-        if (i >= 3 && d > 0.22 && !prev.short && Math.random() < 0.07 + 0.2 * d) {
+        if (i >= 3 && d > 0.12 && !prev.short && Math.random() < 0.08 + 0.3 * d) {
           // double corner: a short, obstacle-free link straight into another turn
           len = v * 1.0 + 17;
           short = true;
         } else {
-          len = v * 1.85 + 14 + v * (dir === 0 ? rand(2.2, 4.4) : rand(1.8, 3.6)) * (1 - 0.45 * d);
+          const lo = dir === 0 ? 2.0 + (0.1 - 2.0) * d : 1.7 + (0.1 - 1.7) * d;
+          const hi = dir === 0 ? 4.2 + (1.4 - 4.2) * d : 3.4 + (1.1 - 3.4) * d;
+          len = HALF + v * 1.85 + 2 + v * rand(lo, hi) + Math.max(8, v * 0.35) + HALF;
         }
-        seg = { i, dir, sx: prev.sx + dx * prev.len, sz: prev.sz + dz * prev.len, len: Math.round(len), short };
+        seg = { i, dir, sx: prev.sx + dx * prev.len, sz: prev.sz + dz * prev.len, len: Math.round(len), short, d0 };
       }
       // choose the turn at the end of this segment (never head south)
       if (seg.dir === 0) seg.turn = Math.random() < 0.5 ? -1 : 1;
@@ -498,43 +519,60 @@ export class World {
 
   // ---------------------------------------------------------------- obstacles & coins
   _placeObstacles(seg, group, S) {
-    const speed = this.genSpeed;
-    const d = this.difficulty;
-    // no obstacles in a corner or for ~1.75 s after one; keep the approach to the next corner clear
+    const speed = this._speedFor(seg.d0 + seg.len);
+    const d = this._diffFor(seg.d0);
+    seg.genSpeed = speed; seg.diff = d;
+    // no obstacles in a corner or for ~1.85 s after one; keep the approach to the next corner clear
     const sStart = seg.i === 0 ? 48 : HALF + speed * 1.85 + 2;
     const sEnd = seg.len - HALF - Math.max(8, speed * 0.35);
     const list = [];
     let s = sStart;
     let last = null;
-    // quick follow-ups: [next obstacle, seconds after the first]. Each is readable and has a clear
-    // answer (jump then duck, duck then jump, weave left/right, thread the middle then dodge).
+    // follow-ups: [next obstacle, base seconds after the previous one]. Gaps tighten with difficulty
+    // but never below minGap(), which is what jump/slide/steer physically need.
     const COMBOS = {
-      log: [['bar', 0.95], ['rockL', 0.72], ['rockR', 0.72], ['rockC', 0.72]],
-      bar: [['log', 0.72], ['rockC', 0.72]],
-      rockL: [['rockR', 0.85], ['log', 0.68], ['bar', 0.68]],
-      rockR: [['rockL', 0.85], ['log', 0.68], ['bar', 0.68]],
-      rockC: [['log', 0.68], ['rockLR', 0.9]],
-      rockLR: [['rockC', 0.9], ['bar', 0.68]],
+      log: [['bar', 0.85], ['rockL', 0.65], ['rockR', 0.65], ['rockC', 0.65], ['wideL', 0.7], ['wideR', 0.7], ['log', 0.8]],
+      bar: [['log', 0.65], ['rockC', 0.6], ['wideL', 0.65], ['wideR', 0.65], ['bar', 0.6]],
+      rockL: [['rockR', 0.75], ['wideR', 0.85], ['log', 0.6], ['bar', 0.6]],
+      rockR: [['rockL', 0.75], ['wideL', 0.85], ['log', 0.6], ['bar', 0.6]],
+      wideL: [['wideR', 0.9], ['rockR', 0.8], ['log', 0.6], ['bar', 0.6], ['rockC', 0.6]],
+      wideR: [['wideL', 0.9], ['rockL', 0.8], ['log', 0.6], ['bar', 0.6], ['rockC', 0.6]],
+      rockC: [['log', 0.6], ['rockLR', 0.75], ['bar', 0.6]],
+      rockLR: [['rockC', 0.75], ['bar', 0.6], ['log', 0.6]],
     };
-    while (s < sEnd) {
+    const pickType = () => {
       const r = Math.random();
-      let type;
-      if (r < 0.27) type = 'log';
-      else if (r < 0.5) type = 'bar';
-      else if (r < 0.73) type = Math.random() < 0.5 ? 'rockL' : 'rockR';
-      else if (r < 0.87) type = 'rockC';
-      else type = 'rockLR';
+      const wide = 0.1 + 0.12 * d; // steer-across blockers become more common
+      if (r < 0.24) return 'log';
+      if (r < 0.45) return 'bar';
+      if (r < 0.45 + wide) return Math.random() < 0.5 ? 'wideL' : 'wideR';
+      if (r < 0.66 + wide * 0.5) return Math.random() < 0.5 ? 'rockL' : 'rockR';
+      if (r < 0.86) return 'rockC';
+      return 'rockLR';
+    };
+    let nextType = null;
+    while (s < sEnd) {
+      let type = nextType || pickType();
       if (last && last === type && type !== 'log') type = 'log';
       list.push({ type, s });
       last = type;
-      if (d > 0.04 && Math.random() < 0.1 + 0.42 * d) {
-        const [t2, gap] = pick(COMBOS[type]);
-        const s2 = s + Math.max(8, speed * gap);
-        if (s2 < sEnd) { list.push({ type: t2, s: s2, combo: true }); s = s2; last = t2; }
+      if (Math.random() < 0.12 + 0.63 * d) {
+        // chain of 2-4 obstacles
+        const extra = 1 + (Math.random() < 0.65 * d ? 1 : 0) + (Math.random() < 0.4 * d ? 1 : 0);
+        for (let k = 0; k < extra; k++) {
+          const [t2, base] = pick(COMBOS[last]);
+          const gap = Math.max(minGap(last, t2), base * (1 - 0.3 * d));
+          const s2 = s + speed * gap;
+          if (s2 >= sEnd) break;
+          list.push({ type: t2, s: s2, combo: true });
+          s = s2; last = t2;
+        }
       }
-      const gapT = Math.max(0.62, (1.2 - 0.52 * d) * rand(0.85, 1.22));
-      s += Math.max(9, speed * gapT);
+      const gapT = Math.max(0.45, (1.0 - 0.5 * d) * rand(0.9, 1.2));
+      nextType = pickType();
+      s += Math.max(8, speed * Math.max(gapT, minGap(last, nextType)));
     }
+    seg.obsList = list;
 
     for (const o of list) this._makeObstacle(seg, group, S, o);
 
@@ -694,6 +732,8 @@ export class World {
       if (o.type === 'rockL') { ranges = [[-INNER - 0.05, 0.15]]; o.safeX = 1.2; }
       else if (o.type === 'rockR') { ranges = [[-0.15, INNER + 0.05]]; o.safeX = -1.2; }
       else if (o.type === 'rockC') { ranges = [[-0.8, 0.8]]; o.safeX = Math.random() < 0.5 ? -1.45 : 1.45; }
+      else if (o.type === 'wideL') { ranges = [[-INNER - 0.05, 0.9]]; o.safeX = 1.5; }
+      else if (o.type === 'wideR') { ranges = [[-0.9, INNER + 0.05]]; o.safeX = -1.5; }
       else { ranges = [[-INNER - 0.05, -0.95], [0.95, INNER + 0.05]]; o.safeX = 0; }
       for (const [a, b] of ranges) {
         const cx = (a + b) / 2, w = b - a;
@@ -799,6 +839,37 @@ export class World {
     this.coinMesh.count = n;
     this.coinMesh.instanceMatrix.needsUpdate = true;
   }
+}
+
+// ---------------------------------------------------------------- fairness model
+// Where the panda's centre may be to get past each obstacle (null = anywhere, jump/slide instead).
+const PH = PANDA_HALF_W, BOX_IN = 0.14;
+export const SAFE_X = {
+  log: null, bar: null,
+  rockL: [[0.15 - BOX_IN + PH, PLAY_HALF]],
+  rockR: [[-PLAY_HALF, -(0.15 - BOX_IN + PH)]],
+  wideL: [[0.9 - BOX_IN + PH, PLAY_HALF]],
+  wideR: [[-PLAY_HALF, -(0.9 - BOX_IN + PH)]],
+  rockC: [[-PLAY_HALF, -(0.8 - BOX_IN + PH)], [0.8 - BOX_IN + PH, PLAY_HALF]],
+  rockLR: [[-(0.95 + BOX_IN - PH), 0.95 + BOX_IN - PH]],
+};
+export const STEER_RATE = 7.5; // slowest steering input (keyboard), road units per second
+/** Shortest lateral move between the safe zones of two obstacles. */
+export function lateralNeed(a, b) {
+  const A = SAFE_X[a], B = SAFE_X[b];
+  if (!A || !B) return 0;
+  let best = 99;
+  for (const [a0, a1] of A) for (const [b0, b1] of B) best = Math.min(best, Math.max(0, b0 - a1, a0 - b1));
+  return best;
+}
+/** Minimum seconds between two consecutive obstacles so the pattern is always survivable. */
+export function minGap(a, b) {
+  let g = 0.45;
+  // jump a log, then get down and slide under a bar (swipe-down slams to the ground in <0.1 s)
+  if (a === 'log' && b === 'bar') g = Math.max(g, 0.6);
+  const lat = lateralNeed(a, b);
+  if (lat > 0) g = Math.max(g, 0.18 + lat / STEER_RATE + 0.1);
+  return g;
 }
 
 function scaleUV(geo, su, sv) {
