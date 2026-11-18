@@ -360,7 +360,7 @@ export class AudioEngine {
   coin() {
     if (!this._ok()) return;
     const t = this.ctx.currentTime;
-    const v = 0.32;
+    const v = 0.192; // 60% of original 0.32 (Joseph, 2026-11-18)
     this._sfxOsc('square', 988, 990, t, 0.07, v, 'lin');
     this._sfxOsc('square', 1319, 1320, t + 0.06, 0.22, v, 'lin');
     this._sfxOsc('sine', 2637, 2640, t + 0.06, 0.18, v * 0.5, 'lin');
