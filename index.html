@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Season Shift — Panda Endless Runner</title>
+  <meta name="description" content="Season Shift: a 3D endless runner. Guide a giant panda along a winding path through spring, summer, autumn and winter." />
+  <meta name="theme-color" content="#7ec8f0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Season Shift" />
+  <meta name="application-name" content="Season Shift" />
+  <meta name="format-detection" content="telephone=no" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./js/vendor/three.min.js", "three/addons/BufferGeometryUtils.js": "./js/vendor/BufferGeometryUtils.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HOME -->
+  <section id="home" class="screen active" aria-label="Home">
+    <div class="season-tint" id="seasonTint"></div>
+    <header class="home-top">
+      <div class="logo">
+        <span class="logo-season">Season</span>
+        <span class="logo-shift">Shift</span>
+      </div>
+      <button class="icon-btn" id="soundBtn" aria-label="Toggle sound">🔊</button>
+    </header>
+
+    <div class="pages" id="pages">
+      <article class="page" data-season="0"><div class="page-card"><span class="page-kicker">Start in</span><h2>Spring</h2><p>Cherry blossoms and soft pink skies.</p></div></article>
+      <article class="page" data-season="1"><div class="page-card"><span class="page-kicker">Start in</span><h2>Summer</h2><p>Deep green forests under a blazing sun.</p></div></article>
+      <article class="page" data-season="2"><div class="page-card"><span class="page-kicker">Start in</span><h2>Autumn</h2><p>Golden maples and a glowing amber haze.</p></div></article>
+      <article class="page" data-season="3"><div class="page-card"><span class="page-kicker">Start in</span><h2>Winter</h2><p>Snowy pines and crisp, frosty air.</p></div></article>
+    </div>
+
+    <div class="home-bottom">
+      <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
+      <div class="season-arrows">
+        <button class="arrow" id="prevSeason" aria-label="Previous season">‹</button>
+        <button class="play-btn" id="playBtn">PLAY</button>
+        <button class="arrow" id="nextSeason" aria-label="Next season">›</button>
+      </div>
+      <div class="home-stats"><span>Best <b id="homeBest">0</b></span><span><i class="coin-ico"></i> <b id="homeCoins">0</b></span></div>
+      <p class="hint" id="homeHint">Swipe to pick a season</p>
+    </div>
+  </section>
+
+  <!-- HUD -->
+  <section id="hud" class="screen" aria-label="Game HUD">
+    <div class="hud-left">
+      <div class="score" id="score">0</div>
+      <div class="coins"><i class="coin-ico"></i><span id="coins">0</span></div>
+    </div>
+    <div class="season-badge" id="seasonBadge">Spring</div>
+    <button class="icon-btn pause-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
+    <div class="turn-hint" id="turnHint"></div>
+    <div class="toast" id="toast"></div>
+  </section>
+
+  <!-- PAUSE -->
+  <section id="pause" class="screen modal" aria-label="Paused">
+    <div class="panel">
+      <h2>Paused</h2>
+      <button class="big-btn" id="resumeBtn">Resume</button>
+      <div class="audio-toggles">
+        <button class="toggle-btn" id="musicBtn" aria-label="Toggle music">Music: On</button>
+        <button class="toggle-btn" id="sfxBtn" aria-label="Toggle sound effects">Sound FX: On</button>
+      </div>
+      <button class="ghost-btn" id="pauseHomeBtn">Home</button>
+    </div>
+  </section>
+
+  <!-- GAME OVER -->
+  <section id="over" class="screen modal" aria-label="Game over">
+    <div class="panel">
+      <h2 id="overTitle">Game Over</h2>
+      <div class="new-best" id="newBest">New best!</div>
+      <div class="stat-row"><span>Score</span><b id="overScore">0</b></div>
+      <div class="stat-row"><span>Best</span><b id="overBest">0</b></div>
+      <div class="stat-row"><span>Coins</span><b><i class="coin-ico"></i> <span id="overCoins">0</span></b></div>
+      <button class="big-btn" id="againBtn">Play Again</button>
+      <button class="ghost-btn" id="overHomeBtn">Home</button>
+    </div>
+  </section>
+
+  <div id="loading" class="loading">Loading…</div>
+
+  <script type="module" src="js/main.js"></script>
+<script async src="/.netlify/scripts/ar" data-netlify-deploy-id="6afd1ca1c1b6d104a8444429" data-netlify-site-id="6ef5a6db-66f4-4fbd-a0d5-ab8824cfc07c" data-agent-runner-id="6afd18c7bcf5810e3c26a695"></script>
+</body>
+</html>
